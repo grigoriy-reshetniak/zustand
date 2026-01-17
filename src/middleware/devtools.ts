@@ -9,7 +9,7 @@ import type {
 type Config = Parameters<
   (Window extends { __REDUX_DEVTOOLS_EXTENSION__?: infer T }
     ? T
-    : { connect: (param: any) => any })['connect']
+    : { connect: (param: object) => object })['connect']
 >[0]
 
 declare module '../vanilla' {
@@ -20,10 +20,32 @@ declare module '../vanilla' {
 }
 
 // FIXME https://github.com/reduxjs/redux-devtools/issues/1097
-type Message = {
-  type: string
-  payload?: any
-  state?: any
+type Message =
+  | {
+      type: 'ACTION'
+      payload: string
+      state?: any
+    }
+  | {
+      type: 'DISPATCH'
+      payload: {
+        type:
+          | 'RESET'
+          | 'COMMIT'
+          | 'ROLLBACK'
+          | 'JUMP_TO_STATE'
+          | 'JUMP_TO_ACTION'
+          | 'IMPORT_STATE'
+          | 'PAUSE_RECORDING'
+        nextLiftedState?: any
+        [key: string]: any
+      }
+      state?: any
+    }
+
+type WithDispatch = {
+  dispatch: (...args: any[]) => any
+  dispatchFromDevtools: boolean
 }
 
 type Cast<T, U> = T extends U ? T : U
@@ -184,6 +206,7 @@ const devtoolsImpl: DevtoolsImpl =
       [store: string]: ReturnType<typeof fn>
     }
     type PartialState = Partial<S> | ((s: S) => Partial<S>)
+    const apiWithDispatch = api as typeof api & WithDispatch
 
     let extensionConnector:
       | (typeof window)['__REDUX_DEVTOOLS_EXTENSION__']
@@ -204,7 +227,7 @@ const devtoolsImpl: DevtoolsImpl =
       extractConnectionInformation(store, extensionConnector, options)
 
     let isRecording = true
-    ;(api.setState as any) = ((state, replace, nameOrAction: Action) => {
+    api.setState = ((state, replace, nameOrAction: Action) => {
       const r = set(state, replace as any)
       if (!isRecording) return r
       const action: { type: string } =
@@ -271,12 +294,12 @@ const devtoolsImpl: DevtoolsImpl =
     }
 
     if (
-      (api as any).dispatchFromDevtools &&
-      typeof (api as any).dispatch === 'function'
+      apiWithDispatch.dispatchFromDevtools &&
+      typeof apiWithDispatch.dispatch === 'function'
     ) {
       let didWarnAboutReservedActionType = false
-      const originalDispatch = (api as any).dispatch
-      ;(api as any).dispatch = (...args: any[]) => {
+      const originalDispatch = apiWithDispatch.dispatch
+      apiWithDispatch.dispatch = (...args: any[]) => {
         if (
           import.meta.env?.MODE !== 'production' &&
           args[0].type === '__setState' &&
@@ -288,7 +311,7 @@ const devtoolsImpl: DevtoolsImpl =
           )
           didWarnAboutReservedActionType = true
         }
-        ;(originalDispatch as any)(...args)
+        originalDispatch(...args)
       }
     }
 
@@ -299,7 +322,7 @@ const devtoolsImpl: DevtoolsImpl =
           listener: (message: Message) => void,
         ) => (() => void) | undefined
       }
-    ).subscribe((message: any) => {
+    ).subscribe((message) => {
       switch (message.type) {
         case 'ACTION':
           if (typeof message.payload !== 'string') {
@@ -341,9 +364,9 @@ const devtoolsImpl: DevtoolsImpl =
                 return
               }
 
-              if (!(api as any).dispatchFromDevtools) return
-              if (typeof (api as any).dispatch !== 'function') return
-              ;(api as any).dispatch(action)
+              if (!apiWithDispatch.dispatchFromDevtools) return
+              if (typeof apiWithDispatch.dispatch !== 'function') return
+              apiWithDispatch.dispatch(action)
             },
           )
 
